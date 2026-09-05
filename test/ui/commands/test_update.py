@@ -1,3 +1,6 @@
+import os
+from unittest import mock
+
 import mediafile
 from mediafile import MediaFile
 
@@ -5,7 +8,7 @@ from beets import library
 from beets.plugins import BeetsPlugin
 from beets.test import _common
 from beets.test.helper import BeetsTestCase, IOMixin
-from beets.util import MoveOperation, remove
+from beets.util import MoveOperation, remove, syspath
 
 
 class UpdateTest(IOMixin, BeetsTestCase):
@@ -176,6 +179,48 @@ class UpdateTest(IOMixin, BeetsTestCase):
         self._update(reset_mtime=False)
         item = self.lib.items().get()
         assert item.title == "full"
+
+    def test_update_uses_single_stat_for_present_files(self):
+        self.i.mtime = self.i.filepath.stat().st_mtime
+        self.i.store()
+        self.i2.mtime = self.i2.filepath.stat().st_mtime
+        self.i2.store()
+
+        item_paths = {syspath(self.i.path), syspath(self.i2.path)}
+        real_stat = os.stat
+        real_exists = os.path.exists
+        stat_paths: list[str] = []
+
+        def tracking_stat(path, *args, **kwargs):
+            if path in item_paths:
+                stat_paths.append(path)
+            return real_stat(path, *args, **kwargs)
+
+        def tracking_exists(path):
+            if path in item_paths:
+                raise AssertionError(
+                    f"os.path.exists should not be called for item: {path}"
+                )
+            return real_exists(path)
+
+        with (
+            mock.patch(
+                "beets.ui.commands.update.os.stat", side_effect=tracking_stat
+            ),
+            mock.patch(
+                "beets.ui.commands.update.os.path.exists",
+                side_effect=tracking_exists,
+            ),
+            mock.patch(
+                "beets.library.models.Item.current_mtime",
+                side_effect=AssertionError(
+                    "current_mtime should not be called"
+                ),
+            ),
+        ):
+            self._update(reset_mtime=False)
+
+        assert set(stat_paths) == item_paths
 
     def test_multivalued_albumtype_roundtrip(self):
         # https://github.com/beetbox/beets/issues/4528
