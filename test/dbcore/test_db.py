@@ -554,6 +554,31 @@ class ResultsIteratorTest(unittest.TestCase):
         list(it2)
         assert len(list(it1)) == 1
 
+    def test_large_result_interleaved_iteration(self):
+        count = 250
+        for i in range(count):
+            model = ModelFixture1()
+            model["foo"] = f"item-{i:04d}"
+            model.add(self.db)
+
+        results = self.db._get_results(ModelFixture1)
+        it1 = iter(results)
+        it2 = iter(results)
+
+        first_batch = [next(it1) for _ in range(50)]
+        remaining = list(it2)
+        rest_of_first = list(it1)
+
+        assert len(first_batch) == 50
+        assert len(remaining) == count + 2
+        assert len(rest_of_first) == count + 2 - 50
+        assert [obj.foo for obj in remaining[:50]] == [
+            obj.foo for obj in first_batch
+        ]
+        assert remaining[50:] == rest_of_first
+        assert len(results) == count + 2
+        assert [obj.foo for obj in results] == [obj.foo for obj in remaining]
+
     def test_slow_query(self):
         q = query.SubstringQuery("foo", "ba", False)
         objs = self.db._get_results(ModelFixture1, q)

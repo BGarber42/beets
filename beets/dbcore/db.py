@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections import UserDict, defaultdict
+from collections import UserDict, defaultdict, deque
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -769,7 +769,7 @@ class Results(Sequence[AnyModel]):
         # We keep a queue of rows we haven't yet consumed for
         # materialization. We preserve the original total number of
         # rows.
-        self._rows = rows
+        self._rows: deque[sqlite3.Row] = deque(rows)
         self._row_count = len(rows)
 
         # The materialized objects corresponding to rows that have been
@@ -801,7 +801,7 @@ class Results(Sequence[AnyModel]):
             # and produce it.
             else:
                 while self._rows:
-                    row = self._rows.pop(0)
+                    row = self._rows.popleft()
                     obj = self._make_model(row, flex_attrs.get(row["id"], {}))
                     # If there is a slow-query predicate, ensurer that the
                     # object passes it.
