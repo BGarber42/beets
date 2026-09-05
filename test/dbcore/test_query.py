@@ -594,6 +594,52 @@ class TestRelatedQueries:
         assert {i.album for i in lib.albums(q)} == set(expected_albums)
         assert {i.title for i in lib.items(q)} == set(expected_titles)
 
+    def test_related_album_query_returns_each_album_once(self, lib):
+        albums = list(lib.albums("title:Item2"))
+        assert [album.album for album in albums] == ["Album1", "Album2"]
+
+
+class TestQueryGrouping:
+    """GROUP BY is only needed when a related-table join multiplies rows."""
+
+    @pytest.fixture
+    def lib(self, helper):
+        items = [
+            helper.create_item(album="Grouped", title=f"Track{idx}")
+            for idx in range(1, 3)
+        ]
+        album = helper.lib.add_album(items)
+        album.catalognum = "XYZ"
+        album.store()
+        return helper.lib
+
+    @staticmethod
+    def _capture_main_sql(monkeypatch, lib, fetch):
+        statements: list[str] = []
+        original_query = lib.transaction().__class__.query
+
+        def capture(self, statement, subvals=()):
+            statements.append(statement)
+            return original_query(self, statement, subvals)
+
+        monkeypatch.setattr(lib.transaction().__class__, "query", capture)
+        list(fetch())
+        return statements[0]
+
+    def test_unjoined_item_query_omits_group_by(self, monkeypatch, lib):
+        sql = self._capture_main_sql(
+            monkeypatch, lib, lambda: lib.items("title:Track1")
+        )
+        assert "GROUP BY" not in sql
+        assert "JOIN" not in sql.upper()
+
+    def test_related_album_query_keeps_group_by(self, monkeypatch, lib):
+        sql = self._capture_main_sql(
+            monkeypatch, lib, lambda: lib.albums("title:Track1")
+        )
+        assert "GROUP BY albums.id" in sql
+        assert "JOIN" in sql.upper()
+
 
 class TestHasCoverArtQuery:
     """Test has_cover_art computed field for detecting embedded cover art."""
