@@ -173,7 +173,16 @@ def update_func(lib: Library, opts: UpdateCLIOpts, args: list[str]) -> None:
         if not ui.input_yn("Are you sure you want to continue (y/n)?", True):
             return
     if opts.album:
-        items = [i for a in lib.albums(args) for i in a.items()]
+        albums = list(lib.albums(args))
+        items_by_album = lib._items_by_album_ids(
+            [album.id for album in albums if album.id is not None]
+        )
+        items = [
+            item
+            for album in albums
+            if album.id is not None
+            for item in items_by_album.get(album.id, [])
+        ]
     else:
         items = list(lib.items(args))
     update_items(

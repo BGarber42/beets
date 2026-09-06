@@ -159,15 +159,29 @@ def move_items(
 def move_albums(
     lib: Library, query: Sequence[str], dest: bytes | None, opts: MoveCLIOpts
 ) -> None:
+    albums = list(lib.albums(query))
+    items_by_album = lib._items_by_album_ids(
+        [album.id for album in albums if album.id is not None]
+    )
+
+    def album_items(album: Album) -> list[Item]:
+        if album.id is None:
+            return []
+        return items_by_album.get(album.id, [])
+
+    def is_album_moved(basedir: bytes | None, album: Album) -> bool:
+        return any(isitemmoved(basedir, item) for item in album_items(album))
+
     def get_paths(objs: Iterable[Album]) -> list[tuple[bytes, bytes]]:
         return [
             (item.path, item.destination(basedir=dest))
-            for obj in objs
-            for item in obj.items()
+            for album in objs
+            for item in album_items(album)
         ]
 
-    objs = list(lib.albums(query))
-    move_objects(objs, isalbummoved, "album", get_paths, dest=dest, opts=opts)
+    move_objects(
+        albums, is_album_moved, "album", get_paths, dest=dest, opts=opts
+    )
 
 
 def move_func(lib: Library, opts: MoveCLIOpts, args: list[str]) -> None:

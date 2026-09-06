@@ -201,6 +201,22 @@ class Library(dbcore.Database):
         """Get :class:`Item` objects matching the query."""
         return self._fetch(Item, query, sort or self.get_default_item_sort())
 
+    def _items_by_album_ids(
+        self, album_ids: Sequence[int]
+    ) -> dict[int, list[Item]]:
+        """Return items grouped by album id using one library query.
+
+        Albums with no matching items are included with an empty list.
+        """
+        if not album_ids:
+            return {}
+        by_id: dict[int, list[Item]] = {album_id: [] for album_id in album_ids}
+        for item in self.items(dbcore.query.InQuery("album_id", list(album_ids))):
+            if item.album_id is None:
+                continue
+            by_id.setdefault(item.album_id, []).append(item)
+        return by_id
+
     # Convenience accessors.
     def get_item(self, id_: int) -> Item | None:
         """Fetch a :class:`Item` by its ID.
