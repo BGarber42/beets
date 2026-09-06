@@ -744,6 +744,11 @@ class Results(Sequence[AnyModel]):
         flex_rows: list[sqlite3.Row],
         query: Query | None = None,
         sort: Sort | None = None,
+        *,
+        fetch_sql: str | None = None,
+        fetch_flex_sql: str | None = None,
+        count_sql: str | None = None,
+        fetch_subvals: Sequence[SQLiteType] = (),
     ) -> None:
         """Create a result set that will construct objects of type
         `model_class`.
@@ -758,6 +763,10 @@ class Results(Sequence[AnyModel]):
         full list of results before returning. This means it is a "slow
         sort" and all objects must be built before returning the first
         one.
+
+        When `fetch_sql` is provided, row and flex fetches are deferred
+        until iteration or indexing. Fast ``len()`` uses `count_sql`
+        without loading rows or flex attributes.
         """
         self.model_class = model_class
         self.rows = rows
@@ -765,6 +774,13 @@ class Results(Sequence[AnyModel]):
         self.query = query
         self.sort = sort
         self.flex_rows = flex_rows
+
+        self._fetch_sql = fetch_sql
+        self._fetch_flex_sql = fetch_flex_sql
+        self._count_sql = count_sql
+        self._fetch_subvals = fetch_subvals
+        self._fetched = fetch_sql is None
+        self._cached_count: int | None = None
 
         # We keep a queue of rows we haven't yet consumed for
         # materialization. We preserve the original total number of
@@ -776,6 +792,21 @@ class Results(Sequence[AnyModel]):
         # consumed.
         self._objects: list[AnyModel] = []
 
+    def _ensure_fetched(self) -> None:
+        """Load fixed and flex rows if this result set is deferred."""
+        if self._fetched:
+            return
+        assert self._fetch_sql is not None
+        assert self._fetch_flex_sql is not None
+        with self.db.transaction() as tx:
+            rows = tx.query(self._fetch_sql, self._fetch_subvals)
+            flex_rows = tx.query(self._fetch_flex_sql, self._fetch_subvals)
+        self.rows = rows
+        self.flex_rows = flex_rows
+        self._rows = rows
+        self._row_count = len(rows)
+        self._fetched = True
+
     def _get_objects(self) -> Iterator[AnyModel]:
         """Construct and generate Model objects for they query. The
         objects are returned in the order emitted from the database; no
@@ -786,6 +817,7 @@ class Results(Sequence[AnyModel]):
         a `Results` object a second time should be much faster than the
         first.
         """
+        self._ensure_fetched()
 
         # Index flexible attributes by the item ID, so we have easier access
         flex_attrs = self._get_indexed_flex_attrs()
@@ -848,10 +880,6 @@ class Results(Sequence[AnyModel]):
 
     def __len__(self) -> int:
         """Get the number of matching objects."""
-        if not self._rows:
-            # Fully materialized. Just count the objects.
-            return len(self._objects)
-
         if self.query:
             # A slow query. Fall back to testing every object.
             count = 0
@@ -859,8 +887,20 @@ class Results(Sequence[AnyModel]):
                 count += 1
             return count
 
-        # A fast query. Just count the rows.
-        return self._row_count
+        if self._cached_count is not None:
+            return self._cached_count
+
+        if self._fetched:
+            if not self._rows:
+                # Fully materialized. Just count the objects.
+                return len(self._objects)
+            return self._row_count
+
+        assert self._count_sql is not None
+        with self.db.transaction() as tx:
+            count_rows = tx.query(self._count_sql, self._fetch_subvals)
+        self._cached_count = int(count_rows[0][0])
+        return self._cached_count
 
     def __nonzero__(self) -> bool:
         """Does this result contain any objects?"""
@@ -881,6 +921,7 @@ class Results(Sequence[AnyModel]):
         if isinstance(index, slice) or index < 0:
             return list(self)[index]
 
+        self._ensure_fetched()
         if not self._rows and not self.sort:
             # Fully materialized and already in order. Just look up the
             # object.
@@ -1416,7 +1457,7 @@ class Database:
             _from += f" {model_cls.relation_join}"
 
         # group by id to avoid duplicates when joining with the relation
-        sql = (
+        grouped_sql = (
             f"SELECT {table}.* "
             f"FROM ({_from}) "
             f"WHERE {where or 1} "
@@ -1428,28 +1469,30 @@ class Database:
         flex_sql = (
             "SELECT * "
             f"FROM {model_cls._flex_table} "
-            f"WHERE entity_id IN (SELECT id FROM ({sql}))"
+            f"WHERE entity_id IN (SELECT id FROM ({grouped_sql}))"
         )
+        count_sql = f"SELECT COUNT(*) FROM ({grouped_sql})"
 
+        sql = grouped_sql
         if order_by:
             # the sort field may exist in both 'items' and 'albums' tables
             # (when they are joined), causing ambiguous column OperationalError
             # if we try to order directly.
             # Since the join is required only for filtering, we can filter in
             # a subquery and order the result, which returns unique fields.
-            sql = f"SELECT * FROM ({sql}) ORDER BY {order_by}"
-
-        with self.transaction() as tx:
-            rows = tx.query(sql, subvals)
-            flex_rows = tx.query(flex_sql, subvals)
+            sql = f"SELECT * FROM ({grouped_sql}) ORDER BY {order_by}"
 
         return Results(
             model_cls,
-            rows,
+            [],
             self,
-            flex_rows,
+            [],
             None if where else query,  # Slow query component.
             sort if sort.is_slow() else None,  # Slow sort component.
+            fetch_sql=sql,
+            fetch_flex_sql=flex_sql,
+            count_sql=count_sql,
+            fetch_subvals=subvals,
         )
 
     def _get(self, model_cls: type[AnyModel], id_: int) -> AnyModel | None:

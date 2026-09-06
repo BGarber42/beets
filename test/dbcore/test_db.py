@@ -597,6 +597,46 @@ class ResultsIteratorTest(unittest.TestCase):
         objs = self.db._get_results(ModelFixture1)
         assert len(objs) == 2
 
+    def test_len_uses_count_without_fetching_rows(self):
+        statements: list[str] = []
+        original = dbcore.db.Transaction.query
+
+        def wrapped(self_tx, statement, subvals=()):
+            statements.append(statement)
+            return original(self_tx, statement, subvals)
+
+        dbcore.db.Transaction.query = wrapped
+        try:
+            results = self.db._get_results(ModelFixture1)
+            # Construction must not run the main/flex fetches yet.
+            assert statements == []
+
+            assert len(results) == 2
+            assert len(statements) == 1
+            assert "COUNT(*)" in statements[0].upper()
+            assert ModelFixture1._flex_table not in statements[0]
+
+            foos = [obj.foo for obj in results]
+            assert sorted(foos) == ["bar", "baz"]
+            assert any(
+                "SELECT" in s.upper() and "COUNT" not in s.upper()
+                for s in statements[1:]
+            )
+        finally:
+            dbcore.db.Transaction.query = original
+
+    def test_len_then_reiterate(self):
+        results = self.db._get_results(ModelFixture1)
+        assert len(results) == 2
+        assert [obj.foo for obj in results] == ["baz", "bar"]
+        assert [obj.foo for obj in results] == ["baz", "bar"]
+
+    def test_slow_query_len_still_filters(self):
+        q = query.SubstringQuery("foo", "baz", False)
+        results = self.db._get_results(ModelFixture1, q)
+        assert len(results) == 1
+        assert list(results)[0].foo == "baz"
+
     def test_out_of_range(self):
         objs = self.db._get_results(ModelFixture1)
         with pytest.raises(IndexError):
