@@ -1412,16 +1412,14 @@ class Database:
 
         table = model_cls._table
         _from = table
-        if query.field_names & model_cls.other_db_fields:
+        needs_join = bool(query.field_names & model_cls.other_db_fields)
+        if needs_join:
             _from += f" {model_cls.relation_join}"
 
-        # group by id to avoid duplicates when joining with the relation
-        sql = (
-            f"SELECT {table}.* "
-            f"FROM ({_from}) "
-            f"WHERE {where or 1} "
-            f"GROUP BY {table}.id"
-        )
+        # Group by id only when a relation join can duplicate rows.
+        sql = f"SELECT {table}.* FROM ({_from}) WHERE {where or 1}"
+        if needs_join:
+            sql += f" GROUP BY {table}.id"
         # Fetch flexible attributes for items matching the main query.
         # Doing the per-item filtering in python is faster than issuing
         # one query per item to sqlite.
