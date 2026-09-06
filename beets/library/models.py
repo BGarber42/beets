@@ -715,7 +715,10 @@ class Item(LibModel):
         "work",
         "work_disambig",
     }
-    _indices = (dbcore.Index("idx_item_album_id", ("album_id",)),)
+    _indices = (
+        dbcore.Index("idx_item_album_id", ("album_id",)),
+        dbcore.Index("idx_item_path", ("path",)),
+    )
 
     _search_fields = (
         "artist",
