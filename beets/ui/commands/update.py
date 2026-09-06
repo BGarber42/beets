@@ -81,7 +81,7 @@ def update_items(
             else:
                 try:
                     mtime = int(os.stat(syspath(item.path)).st_mtime)
-                except FileNotFoundError:
+                except OSError:
                     mtime = None
 
             # Item deleted?

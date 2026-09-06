@@ -180,6 +180,13 @@ class UpdateTest(IOMixin, BeetsTestCase):
         item = self.lib.items().get()
         assert item.title == "full"
 
+    def test_update_treats_unstatable_path_as_deleted(self):
+        self.i.path = self.lib.directory + b"/bad:name/track.mp3"
+        self.i.store()
+        self.io.addinput("y")
+        self.run_command("update", "--pretend")
+        assert "deleted" in self.io.getoutput()
+
     def test_update_uses_single_stat_for_present_files(self):
         self.i.mtime = self.i.filepath.stat().st_mtime
         self.i.store()
