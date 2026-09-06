@@ -6,6 +6,7 @@ import time
 from contextlib import suppress
 from functools import cached_property
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from mediafile import MediaFile, UnreadableFileError
@@ -357,14 +358,20 @@ class Album(LibModel):
         return Path(os.fsdecode(self.artpath)) if self.artpath else None
 
     @classmethod
-    def _getters(cls) -> dict[str, Callable[[Self], object]]:
+    def _getters(cls) -> Mapping[str, Callable[[Self], object]]:
+        return cls._cached_getters
+
+    @cached_classproperty
+    def _cached_getters(cls) -> Mapping[str, Callable[[Self], object]]:
         # In addition to plugin-provided computed fields, also expose
         # the album's directory as `path`.
-        return {
-            **plugins.album_field_getters(),
-            "path": Album.item_dir,
-            "albumtotal": Album._albumtotal,
-        }
+        return MappingProxyType(
+            {
+                **plugins.album_field_getters(),
+                "path": Album.item_dir,
+                "albumtotal": Album._albumtotal,
+            }
+        )
 
     def items(self) -> Results[Item]:  # type: ignore[override]
         """Return an iterable over the items associated with this
@@ -788,13 +795,19 @@ class Item(LibModel):
         self.__album = album
 
     @classmethod
-    def _getters(cls) -> dict[str, Callable[[Self], object]]:
-        return {
-            **plugins.item_field_getters(),
-            "singleton": lambda i: i.album_id is None,
-            "filesize": Item.try_filesize,  # In bytes.
-            "has_cover_art": Item.has_cover_art,
-        }
+    def _getters(cls) -> Mapping[str, Callable[[Self], object]]:
+        return cls._cached_getters
+
+    @cached_classproperty
+    def _cached_getters(cls) -> Mapping[str, Callable[[Self], object]]:
+        return MappingProxyType(
+            {
+                **plugins.item_field_getters(),
+                "singleton": lambda i: i.album_id is None,
+                "filesize": Item.try_filesize,  # In bytes.
+                "has_cover_art": Item.has_cover_art,
+            }
+        )
 
     def duplicates_query(self, fields: list[str]) -> dbcore.AndQuery:
         """Return a query for entities with same values in the given fields."""

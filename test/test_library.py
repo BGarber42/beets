@@ -889,6 +889,7 @@ class TestPluginDestination(TestHelper):
 
         self.old_field_getters = plugins.item_field_getters
         plugins.item_field_getters = field_getters
+        plugins.clear_field_getter_cache()
 
         self.lib.directory = b"/base"
         self.lib.path_formats = [("default", "$artist $foo")]
@@ -896,8 +897,10 @@ class TestPluginDestination(TestHelper):
         yield _common.item(self.lib)
 
         plugins.item_field_getters = self.old_field_getters
+        plugins.clear_field_getter_cache()
 
     def _assert_dest(self, dest, item):
+        plugins.clear_field_getter_cache()
         with _common.platform_posix():
             the_dest = item.destination()
         assert the_dest == b"/base/" + dest

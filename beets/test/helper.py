@@ -478,6 +478,7 @@ class PluginMixin(ConfigMixin):
         beets.plugins.BeetsPlugin._raw_listeners.clear()
         self.config["plugins"] = []
         beets.plugins._instances.clear()
+        beets.plugins.clear_field_getter_cache()
 
     @contextmanager
     def configure_plugin(self, config: Any) -> Iterator[None]:

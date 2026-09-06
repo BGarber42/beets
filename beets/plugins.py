@@ -17,7 +17,7 @@ from typing_extensions import Never, ParamSpec, Unpack
 
 import beets
 from beets import logging
-from beets.util import unique_list
+from beets.util import cached_classproperty, unique_list
 from beets.util.deprecation import deprecate_for_maintainers, deprecate_for_user
 
 if TYPE_CHECKING:
@@ -556,6 +556,7 @@ def load_plugins() -> None:
         names = get_plugin_names()
         log.debug("Loading plugins: {}", ", ".join(sorted(names)))
         _instances.extend(filter(None, map(_get_plugin, names)))
+        clear_field_getter_cache()
 
         send("pluginload")
 
@@ -709,6 +710,18 @@ def album_field_getters() -> TFuncMap[Album]:
     for plugin in find_plugins():
         _check_conflicts_and_merge(plugin, plugin.album_template_fields, funcs)
     return funcs
+
+
+def clear_field_getter_cache() -> None:
+    """Drop cached Item/Album computed-field getter maps.
+
+    Call after loading or unloading plugins, or when tests replace
+    ``item_field_getters`` / ``album_field_getters``.
+    """
+    from beets.library import Album, Item
+
+    cached_classproperty.cache.pop((Item, "_cached_getters"), None)
+    cached_classproperty.cache.pop((Album, "_cached_getters"), None)
 
 
 # Event dispatch.
