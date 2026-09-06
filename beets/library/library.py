@@ -57,6 +57,31 @@ class Library(dbcore.Database):
     def path_formats(self) -> list[PathFormat]:
         return get_path_formats(config["paths"])
 
+    def parsed_path_formats(
+        self, model_cls: type[LibModel]
+    ) -> list[tuple[Query | None, str]]:
+        """Return path formats with queries parsed once per formats list.
+
+        Cache lifetime follows the current ``path_formats`` object identity,
+        so assigning a new list (as tests do) rebuilds the parsed cache.
+        """
+        formats = self.path_formats
+        cache = getattr(self, "_parsed_path_formats_cache", None)
+        if cache is not None and cache[0] is formats and cache[1] is model_cls:
+            return cache[2]
+
+        from beets.util.pathformats import PF_KEY_DEFAULT
+
+        parsed: list[tuple[Query | None, str]] = []
+        for query_str, path_format in formats:
+            if query_str == PF_KEY_DEFAULT:
+                parsed.append((None, path_format))
+            else:
+                query, _ = parse_query_string(query_str, model_cls)
+                parsed.append((query, path_format))
+        self._parsed_path_formats_cache = (formats, model_cls, parsed)
+        return parsed
+
     @staticmethod
     def get_replacements() -> Replacements:
         """Build regex/string replacement pairs from config."""

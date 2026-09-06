@@ -1238,21 +1238,35 @@ class Item(LibModel):
         basedir = basedir or self.db.directory
         path_formats = path_formats or self.db.path_formats
 
-        for query_str, path_format in path_formats:
-            if query_str == PF_KEY_DEFAULT:
-                continue
-            query, _ = parse_query_string(query_str, type(self))
-            if query.match(self):
-                # The query matches the item! Use the corresponding path
-                # format.
-                break
-        else:
-            # No query matched; fall back to default.
-            for query_str, path_format in path_formats:
-                if query_str == PF_KEY_DEFAULT:
+        if path_formats is self.db.path_formats:
+            parsed = self.db.parsed_path_formats(type(self))
+            for query, path_format in parsed:
+                if query is None:
+                    continue
+                if query.match(self):
                     break
             else:
-                assert False, "no default path format"
+                for query, path_format in parsed:
+                    if query is None:
+                        break
+                else:
+                    assert False, "no default path format"
+        else:
+            for query_str, path_format in path_formats:
+                if query_str == PF_KEY_DEFAULT:
+                    continue
+                query, _ = parse_query_string(query_str, type(self))
+                if query.match(self):
+                    # The query matches the item! Use the corresponding path
+                    # format.
+                    break
+            else:
+                # No query matched; fall back to default.
+                for query_str, path_format in path_formats:
+                    if query_str == PF_KEY_DEFAULT:
+                        break
+                else:
+                    assert False, "no default path format"
         # Evaluate the selected template.
         subpath = self.evaluate_template(path_format, for_path=True)
 
