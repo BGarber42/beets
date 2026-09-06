@@ -744,6 +744,9 @@ class Results(Sequence[AnyModel]):
         flex_rows: list[sqlite3.Row],
         query: Query | None = None,
         sort: Sort | None = None,
+        *,
+        fetch_flex_sql: str | None = None,
+        fetch_flex_subvals: Sequence[SQLiteType] = (),
     ) -> None:
         """Create a result set that will construct objects of type
         `model_class`.
@@ -758,6 +761,9 @@ class Results(Sequence[AnyModel]):
         full list of results before returning. This means it is a "slow
         sort" and all objects must be built before returning the first
         one.
+
+        When `fetch_flex_sql` is provided, flexible attributes are loaded
+        lazily on first materialization instead of at construction time.
         """
         self.model_class = model_class
         self.rows = rows
@@ -765,6 +771,9 @@ class Results(Sequence[AnyModel]):
         self.query = query
         self.sort = sort
         self.flex_rows = flex_rows
+        self._fetch_flex_sql = fetch_flex_sql
+        self._fetch_flex_subvals = fetch_flex_subvals
+        self._flex_fetched = fetch_flex_sql is None
 
         # We keep a queue of rows we haven't yet consumed for
         # materialization. We preserve the original total number of
@@ -776,6 +785,17 @@ class Results(Sequence[AnyModel]):
         # consumed.
         self._objects: list[AnyModel] = []
 
+    def _ensure_flex_fetched(self) -> None:
+        """Load flexible attributes if they were deferred at construction."""
+        if self._flex_fetched:
+            return
+        assert self._fetch_flex_sql is not None
+        with self.db.transaction() as tx:
+            self.flex_rows = tx.query(
+                self._fetch_flex_sql, self._fetch_flex_subvals
+            )
+        self._flex_fetched = True
+
     def _get_objects(self) -> Iterator[AnyModel]:
         """Construct and generate Model objects for they query. The
         objects are returned in the order emitted from the database; no
@@ -786,6 +806,7 @@ class Results(Sequence[AnyModel]):
         a `Results` object a second time should be much faster than the
         first.
         """
+        self._ensure_flex_fetched()
 
         # Index flexible attributes by the item ID, so we have easier access
         flex_attrs = self._get_indexed_flex_attrs()
@@ -1424,7 +1445,8 @@ class Database:
         )
         # Fetch flexible attributes for items matching the main query.
         # Doing the per-item filtering in python is faster than issuing
-        # one query per item to sqlite.
+        # one query per item to sqlite. Defer until materialization so
+        # len()/construction skip this work when results are unused.
         flex_sql = (
             "SELECT * "
             f"FROM {model_cls._flex_table} "
@@ -1441,15 +1463,16 @@ class Database:
 
         with self.transaction() as tx:
             rows = tx.query(sql, subvals)
-            flex_rows = tx.query(flex_sql, subvals)
 
         return Results(
             model_cls,
             rows,
             self,
-            flex_rows,
+            [],
             None if where else query,  # Slow query component.
             sort if sort.is_slow() else None,  # Slow sort component.
+            fetch_flex_sql=flex_sql,
+            fetch_flex_subvals=subvals,
         )
 
     def _get(self, model_cls: type[AnyModel], id_: int) -> AnyModel | None:

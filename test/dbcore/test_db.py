@@ -597,6 +597,50 @@ class ResultsIteratorTest(unittest.TestCase):
         objs = self.db._get_results(ModelFixture1)
         assert len(objs) == 2
 
+    def test_flex_query_deferred_until_materialize(self):
+        statements: list[str] = []
+        original = dbcore.db.Transaction.query
+
+        def wrapped(self_tx, statement, subvals=()):
+            statements.append(statement)
+            return original(self_tx, statement, subvals)
+
+        dbcore.db.Transaction.query = wrapped
+        try:
+            results = self.db._get_results(ModelFixture1)
+            flex_queries = [
+                s for s in statements if ModelFixture1._flex_table in s
+            ]
+            assert len(flex_queries) == 0
+            assert any(ModelFixture1._table in s for s in statements)
+
+            objs = list(results)
+            assert len(objs) == 2
+            flex_queries = [
+                s for s in statements if ModelFixture1._flex_table in s
+            ]
+            assert len(flex_queries) == 1
+        finally:
+            dbcore.db.Transaction.query = original
+
+    def test_flex_field_available_after_lazy_fetch(self):
+        model = ModelFixture1()
+        model["field_one"] = 99
+        model["some_string_field"] = "hello"
+        model.add(self.db)
+
+        results = self.db._get_results(
+            ModelFixture1, query.MatchQuery("field_one", 99)
+        )
+        obj = results.get()
+        assert obj is not None
+        assert obj["some_string_field"] == "hello"
+
+    def test_empty_results_lazy_flex(self):
+        results = self.db._get_results(ModelFixture1, query.FalseQuery())
+        assert list(results) == []
+        assert results.get() is None
+
     def test_out_of_range(self):
         objs = self.db._get_results(ModelFixture1)
         with pytest.raises(IndexError):
