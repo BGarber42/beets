@@ -9,6 +9,25 @@ below!
 Unreleased
 ----------
 
+..
+    New features
+    ~~~~~~~~~~~~
+
+..
+    Bug fixes
+    ~~~~~~~~~
+
+..
+    For plugin developers
+    ~~~~~~~~~~~~~~~~~~~~~
+
+..
+    Other changes
+    ~~~~~~~~~~~~~
+
+2.14.0 (September 07, 2026)
+---------------------------
+
 New features
 ~~~~~~~~~~~~
 
@@ -25,6 +44,8 @@ New features
   tasks. It re-reads the album's directory from disk and re-runs the match, so
   files can be cleaned up (duplicates, junk) while the import is paused at the
   prompt, without restarting the whole ``beet import`` run.
+- :ref:`list-cmd` Add ``-l / --limit LIMIT`` flag to the ``list`` command to
+  limit query results. :bug:`5076`
 
 Bug fixes
 ~~~~~~~~~
@@ -126,6 +147,8 @@ Bug fixes
   Previously all queries were combined, so a listen for "Song" also updated
   "Song (inst.)" or any other item whose title only contained the listened
   title.
+- :doc:`plugins/limit` Deprecate the ``limit`` plugin in favor of the new ``-l``
+  / ``--limit`` flag for the :ref:`list-cmd` command.
 
 ..
     For plugin developers
@@ -136,6 +159,9 @@ Other changes
 
 - :doc:`plugins/bpd`: Replace the bundled Bluelet scheduler with Python's
   standard ``asyncio`` event loop.
+- Docs: fix broken link to ``test/dbcore/test_query.py`` in
+  ``CONTRIBUTING.rst``; add crawler-blocking and unreachable sites to
+  ``linkcheck_ignore`` in ``docs/conf.py``.
 
 2.13.1 (July 29, 2026)
 ----------------------
